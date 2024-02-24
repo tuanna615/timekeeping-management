@@ -2,46 +2,277 @@ import * as XLSX from 'xlsx'
 import _ from 'lodash'
 import { useState } from 'react'
 import moment from 'moment'
+import EmployeeData from './EmployeeData'
 
 const DAY_OF_WEEK = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const PATTERN =
 	/Mã nhân viên: (\w+)\s+Tên nhân viên: ([\w\s]+)\s+Bộ phận: ([\w\s]+)/
-const ARRIVAL_TIME = moment('08:00:00', 'hh:mm:ss')
-const LEAVE_TIME = moment('17:00:00', 'hh:mm:ss')
-const BREAK_TIME = moment('12:00:00', 'hh:mm:ss')
-const BACK_TIME = moment('13:00:00', 'hh:mm:ss')
+
+const NON_CHECKIN_DATA_FIRST_COLUMN = 2
+
+const TIME_FORMAT = 'HH:mm:ss'
+const DATE_FORMAT = 'DD-MM-YYYY'
+
+const ARRIVAL_TIME = moment('08:00:00', TIME_FORMAT).valueOf()
+const LEAVE_TIME = moment('17:00:00', TIME_FORMAT).valueOf()
+const BREAK_TIME = moment('12:00:00', TIME_FORMAT).valueOf()
+const BACK_TIME = moment('13:00:00', TIME_FORMAT).valueOf()
 
 function ExcelReader() {
 	const [data, setData] = useState([])
 
-	const combineDateAndTime = (date, time) => {
+	const combineDateAndTime = ({ date, time }) => {
 		return moment(date)
-			.hour(time.hour())
-			.minute(time.minute())
-			.second(time.second())
+			.hour(moment(time).hour())
+			.minute(moment(time).minute())
+			.second(moment(time).second())
 	}
 
-	const processAtendance = (data) => {
+	const getClosetCheckIns = ({
+		checkIns,
+		time,
+		diffThreshold,
+		position,
+		type,
+	}) => {
+		const closestCheckIns = _.filter(
+			_.map(_.sortBy(checkIns), (checkIn) => {
+				return {
+					checkIn,
+					diff: Math.abs(moment(checkIn).diff(moment(time), 'minutes')),
+				}
+			}),
+			(checkIn) => {
+				return checkIn.diff <= diffThreshold
+			}
+		)
+		if (closestCheckIns.length === 1) {
+			return closestCheckIns[0].checkIn
+		}
+		const closestCheckIn = _[position](
+			_.filter(closestCheckIns, (checkIn) => {
+				return moment(checkIn.checkIn)[type](moment(time))
+			})
+		)
+		if (!closestCheckIn) {
+			return null
+		}
+		return closestCheckIn.checkIn
+	}
+
+	const getDateCheckIns = (data, date) => {
+		return _.map(
+			_.sortBy(_.drop(data, NON_CHECKIN_DATA_FIRST_COLUMN)),
+			(checkIn) => {
+				const timeObject = XLSX.SSF.parse_date_code(checkIn)
+				return combineDateAndTime({
+					date,
+					time: moment()
+						.hour(timeObject.H)
+						.minute(timeObject.M)
+						.second(timeObject.S),
+				})
+			}
+		)
+	}
+
+	const calculateAtendance = (data) => {
+		let attendance = {}
 		const dateObject = XLSX.SSF.parse_date_code(data[0])
 		const date = moment()
 			.date(dateObject.d)
 			.month(dateObject.m - 1)
 			.year(dateObject.y)
 			.startOf('day')
-		const checkIns = _.map(_.sortBy(_.drop(data, 2)), (checkIn) => {
-			const timeObject = XLSX.SSF.parse_date_code(checkIn)
-			return moment()
-				.date(dateObject.d)
-				.month(dateObject.m - 1)
-				.year(dateObject.y)
-				.hour(timeObject.H)
-				.minute(timeObject.M)
-				.second(timeObject.S)
-		})
-		const attendance = {
-			date,
-			checkIns,
+		attendance.date = date
+		attendance.dayOfWeek = data[1]
+		const checkIns = getDateCheckIns(data, date)
+		attendance.checkIns = [...checkIns]
+		if (checkIns.length === 0) {
+			attendance.dayOff = true
+			return attendance
 		}
+		const arrivalTime = moment(checkIns.shift())
+		attendance.arrivalTime = arrivalTime
+		const arrivalDateTime = combineDateAndTime({ date, time: ARRIVAL_TIME })
+		attendance.arrivalDateTime = arrivalDateTime
+		attendance.isLateArrival = moment(arrivalTime).isAfter(
+			moment(arrivalDateTime)
+		)
+		if (checkIns.length === 0) {
+			attendance.missingCheckIn = true
+			return attendance
+		}
+		const leaveTime = moment(checkIns.pop())
+		attendance.leaveTime = leaveTime
+		const leaveDateTime = combineDateAndTime({ date, time: LEAVE_TIME })
+		attendance.leaveDateTime = leaveDateTime
+		attendance.isEarlyLeave = moment(leaveTime).isBefore(moment(leaveDateTime))
+		if (checkIns.length < 2) {
+			attendance.missingBreak = true
+			return attendance
+		}
+		const breakDateTime = combineDateAndTime({ date, time: BREAK_TIME })
+		attendance.breakDateTime = breakDateTime
+		const backDateTime = combineDateAndTime({ date, time: BACK_TIME })
+		attendance.backDateTime = backDateTime
+		const breakTimeCheckIns = _.filter(checkIns, (checkIn) => {
+			return moment(checkIn).isBetween(
+				moment(breakDateTime),
+				moment(backDateTime),
+				undefined,
+				'[]'
+			)
+		})
+		if (breakTimeCheckIns.length === 0) {
+			attendance.invalidBreak = true
+			return attendance
+		}
+		if (breakTimeCheckIns.length < 2) {
+			attendance.invalidBreak = true
+			attendance.inTimeBreak = moment(_.head(breakTimeCheckIns))
+			return attendance
+		}
+		const breakTime = moment(breakTimeCheckIns.shift())
+		attendance.breakTime = moment(breakTime)
+		const backTime = moment(breakTimeCheckIns.pop())
+		attendance.backTime = moment(backTime)
+		return attendance
+	}
+
+	const processInvalidBreak = (data) => {
+		const attendance = { ...data }
+		if (!attendance.invalidBreak) {
+			return attendance
+		}
+		const { date } = attendance
+		const checkIns = _.map(attendance.checkIns, (checkIn) => {
+			return moment(checkIn)
+		})
+		const breakDateTime = combineDateAndTime({ date, time: BREAK_TIME })
+		const backDateTime = combineDateAndTime({ date, time: BACK_TIME })
+		const x = _.slice(checkIns, 1, checkIns.length - 1)
+		const outsideBreakTimeCheckIns = _.filter(x, (checkIn) => {
+			return (
+				moment(checkIn).isBefore(moment(breakDateTime)) ||
+				moment(checkIn).isAfter(moment(backDateTime))
+			)
+		})
+		const diffWithBreak = _.map(outsideBreakTimeCheckIns, (checkIn) => {
+			return {
+				checkIn,
+				diff: Math.abs(
+					moment(checkIn).diff(moment(breakDateTime), 'milliseconds')
+				),
+			}
+		})
+		const diffWithBack = _.map(outsideBreakTimeCheckIns, (checkIn) => {
+			return {
+				checkIn,
+				diff: Math.abs(
+					moment(checkIn).diff(moment(backDateTime), 'milliseconds')
+				),
+			}
+		})
+		if (attendance.inTimeBreak) {
+			const minDiffWithBreak = _.minBy(
+				_.concat(diffWithBreak, diffWithBack),
+				'diff'
+			)
+			if (moment(minDiffWithBreak.checkIn).isBefore(moment(attendance.inTimeBreak))) {
+				attendance.isEarlyBreak = true
+			}
+			else {
+				attendance.isLateBack = true
+			}
+			const breakCheckIns = _.sortBy(
+				[attendance.inTimeBreak, minDiffWithBreak.checkIn],
+				(checkIn) => {
+					return moment(checkIn).valueOf()
+				}
+			)
+			attendance.breakTime = moment(breakCheckIns[0])
+			attendance.backTime = moment(breakCheckIns[1])
+			return attendance
+		}
+		const closestBreak = _.minBy(diffWithBreak, 'diff')
+		attendance.breakTime = moment(closestBreak.checkIn)
+		const closestBack = _.minBy(diffWithBack, 'diff')
+		attendance.backTime = moment(closestBack.checkIn)
+		attendance.isEarlyBreak = true
+		attendance.isLateBack = true
+		return attendance
+	}
+
+	const formatDateTimeFields = (data) => {
+		const attendance = { ...data }
+		attendance.date = moment(attendance.date).format(DATE_FORMAT)
+		attendance.checkIns = _.map(attendance.checkIns, (checkIn) => {
+			return moment(checkIn).format(TIME_FORMAT)
+		})
+		if (attendance.dayOff) {
+			return attendance
+		}
+		if (attendance.arrivalTime) {
+			attendance.arrivalTime = moment(attendance.arrivalTime).format(
+				TIME_FORMAT
+			)
+		}
+		if (attendance.leaveTime) {
+			attendance.leaveTime = moment(attendance.leaveTime).format(TIME_FORMAT)
+		}
+		if (attendance.breakTime) {
+			attendance.breakTime = moment(attendance.breakTime).format(TIME_FORMAT)
+		}
+		if (attendance.backTime) {
+			attendance.backTime = moment(attendance.backTime).format(TIME_FORMAT)
+		}
+		if (attendance.inTimeBreak) {
+			attendance.inTimeBreak = moment(attendance.inTimeBreak).format(
+				TIME_FORMAT
+			)
+		}
+		return attendance
+	}
+
+	const calculateLateEarly = (data) => {
+		const attendance = { ...data }
+		if (attendance.dayOff || attendance.missingCheckIn) {
+			return attendance
+		}
+		attendance.lateArrivalMinutes = 0
+		attendance.earlyLeaveMinutes = 0
+		attendance.earlyBreakMinutes = 0
+		attendance.lateBackMinutes = 0
+		if (!attendance.isLateArrival && !attendance.isEarlyLeave && !attendance.isEarlyBreak && !attendance.isLateBack) {
+			return attendance
+		}
+		if (attendance.isLateArrival) {
+			attendance.lateArrivalMinutes += moment(attendance.arrivalTime).diff(
+				moment(attendance.arrivalDateTime),
+				'minutes'
+			)
+		}
+		if (attendance.isEarlyLeave) {
+			attendance.earlyLeaveMinutes += moment(attendance.leaveDateTime).diff(
+				moment(attendance.leaveTime),
+				'minutes'
+			)
+		}
+		if (attendance.isEarlyBreak) {
+			attendance.earlyBreakMinutes += moment(attendance.breakDateTime).diff(
+				moment(attendance.breakTime),
+				'minutes'
+			)
+		}
+		if (attendance.isLateBack) {
+			attendance.lateBackMinutes += moment(attendance.backTime).diff(
+				moment(attendance.backDateTime),
+				'minutes'
+			)
+		}
+		attendance.totalEarlyMinute = attendance.earlyLeaveMinutes + attendance.earlyBreakMinutes
+		attendance.totalLateMinute = attendance.lateArrivalMinutes + attendance.lateBackMinutes
 		return attendance
 	}
 
@@ -70,12 +301,19 @@ function ExcelReader() {
 				}
 				if (_.intersection(DAY_OF_WEEK, row).length) {
 					const employee = employees[employees.length - 1]
-					const attendance = processAtendance(row)
+					let attendance = calculateAtendance(row)
+					if (attendance.invalidBreak) {
+						attendance = processInvalidBreak(attendance)
+					}
+					attendance = calculateLateEarly(attendance)
+					attendance = formatDateTimeFields(attendance)
 					employee.attendance.push(attendance)
 				}
 			})
 			setData(employees)
 			console.log(employees)
+			// Reset the input value
+			e.target.value = null
 		}
 		reader.readAsBinaryString(file)
 	}
@@ -84,7 +322,9 @@ function ExcelReader() {
 		<div>
 			<input type="file" accept=".xlsx,.xls" onChange={handleFileUpload} />
 			{/* Display data from state */}
-			<pre>{JSON.stringify(data, null, 2)}</pre>
+			{data.map((employee, index) => (
+				<EmployeeData key={index} data={employee} />
+			))}
 		</div>
 	)
 }
