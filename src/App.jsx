@@ -4,13 +4,32 @@ import { useState } from 'react'
 import moment from 'moment'
 import EmployeeData from './EmployeeData'
 
-const DAY_OF_WEEK = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
+const DAY_OF_WEEK = [
+	'CN',
+	'T2',
+	'T3',
+	'T4',
+	'T5',
+	'T6',
+	'T7',
+	'T.2',
+	'T.3',
+	'T.4',
+	'T.5',
+	'T.6',
+	'T.7',
+	'Ba',
+	'Tư',
+	'Năm',
+	'Sáu',
+	'Bảy',
+]
 const PATTERN =
-	/Mã nhân viên: (\w+)\s+Tên nhân viên: ([\w\s]+)\s+Bộ phận: ([\w\s]+)/
+	/Mã nhân viên: ([\w\s]+)\s+Tên nhân viên: ([\w\s]+)\s+(Bộ phận|Phòng ban): ([\w\s]+)/
 
 const NON_CHECKIN_DATA_FIRST_COLUMN = 2
 
-const TIME_FORMAT = 'HH:mm:ss'
+const TIME_FORMAT = 'HH:mm'
 const DATE_FORMAT = 'DD-MM-YYYY'
 
 const ARRIVAL_TIME = moment('08:00:00', TIME_FORMAT).valueOf()
@@ -179,10 +198,13 @@ function ExcelReader() {
 				_.concat(diffWithBreak, diffWithBack),
 				'diff'
 			)
-			if (moment(minDiffWithBreak.checkIn).isBefore(moment(attendance.inTimeBreak))) {
+			if (
+				moment(minDiffWithBreak.checkIn).isBefore(
+					moment(attendance.inTimeBreak)
+				)
+			) {
 				attendance.isEarlyBreak = true
-			}
-			else {
+			} else {
 				attendance.isLateBack = true
 			}
 			const breakCheckIns = _.sortBy(
@@ -244,7 +266,12 @@ function ExcelReader() {
 		attendance.earlyLeaveMinutes = 0
 		attendance.earlyBreakMinutes = 0
 		attendance.lateBackMinutes = 0
-		if (!attendance.isLateArrival && !attendance.isEarlyLeave && !attendance.isEarlyBreak && !attendance.isLateBack) {
+		if (
+			!attendance.isLateArrival &&
+			!attendance.isEarlyLeave &&
+			!attendance.isEarlyBreak &&
+			!attendance.isLateBack
+		) {
 			return attendance
 		}
 		if (attendance.isLateArrival) {
@@ -271,8 +298,41 @@ function ExcelReader() {
 				'minutes'
 			)
 		}
-		attendance.totalEarlyMinute = attendance.earlyLeaveMinutes + attendance.earlyBreakMinutes
-		attendance.totalLateMinute = attendance.lateArrivalMinutes + attendance.lateBackMinutes
+		attendance.totalEarlyMinute =
+			attendance.earlyLeaveMinutes + attendance.earlyBreakMinutes
+		attendance.totalLateMinute =
+			attendance.lateArrivalMinutes + attendance.lateBackMinutes
+		return attendance
+	}
+
+	const calculateNote = (data) => {
+		const attendance = { ...data }
+		const notes = []
+		if (attendance.dayOff) {
+			notes.push('Ngày nghỉ')
+		}
+		if (attendance.missingCheckIn) {
+			notes.push('Thiếu chấm công')
+		}
+		if (attendance.missingBreak) {
+			notes.push('Thiếu giờ nghỉ trưa')
+		}
+		if (attendance.invalidBreak) {
+			notes.push('Sai giờ nghỉ trưa')
+		}
+		if (attendance.isLateArrival) {
+			notes.push('Đến muộn')
+		}
+		if (attendance.isEarlyLeave) {
+			notes.push('Về sớm')
+		}
+		if (attendance.isEarlyBreak) {
+			notes.push('Nghỉ trưa sớm')
+		}
+		if (attendance.isLateBack) {
+			notes.push('Quay lại muộn')
+		}
+		attendance.notes = _.join(notes, ', ')
 		return attendance
 	}
 
@@ -295,7 +355,7 @@ function ExcelReader() {
 					employees.push({
 						employeeId: _.trim(match[1]),
 						name: _.trim(match[2]),
-						department: _.trim(match[3]),
+						department: _.trim(match[4]),
 						attendance: [],
 					})
 				}
@@ -307,20 +367,26 @@ function ExcelReader() {
 					}
 					attendance = calculateLateEarly(attendance)
 					attendance = formatDateTimeFields(attendance)
+					attendance = calculateNote(attendance)
 					employee.attendance.push(attendance)
 				}
 			})
 			setData(employees)
 			console.log(employees)
-			// Reset the input value
-			e.target.value = null
 		}
 		reader.readAsBinaryString(file)
 	}
 
 	return (
 		<div>
-			<input type="file" accept=".xlsx,.xls" onChange={handleFileUpload} />
+			<div className="join p-2">
+				<input
+					type="file"
+					accept=".xlsx,.xls"
+					onChange={handleFileUpload}
+					className="file-input"
+				/>
+			</div>
 			{/* Display data from state */}
 			{data.map((employee, index) => (
 				<EmployeeData key={index} data={employee} />
