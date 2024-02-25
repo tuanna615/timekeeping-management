@@ -80,18 +80,32 @@ function ExcelReader() {
 	}
 
 	const getDateCheckIns = (data, date) => {
-		return _.map(
-			_.sortBy(_.drop(data, NON_CHECKIN_DATA_FIRST_COLUMN)),
-			(checkIn) => {
-				const timeObject = XLSX.SSF.parse_date_code(checkIn)
-				return combineDateAndTime({
-					date,
-					time: moment()
-						.hour(timeObject.H)
-						.minute(timeObject.M)
-						.second(timeObject.S),
-				})
-			}
+		return _.compact(
+			_.map(
+				_.sortBy(_.drop(data, NON_CHECKIN_DATA_FIRST_COLUMN)),
+				(checkIn) => {
+					if (!checkIn) {
+						return null
+					}
+					const timeObject = XLSX.SSF.parse_date_code(checkIn)
+					let time = null
+					if (_.isNaN(timeObject.H)) {
+						time = moment(checkIn, TIME_FORMAT)
+						if (!time.isValid()) {
+							return null
+						}
+					} else {
+						time = moment()
+							.hour(timeObject.H)
+							.minute(timeObject.M)
+							.second(timeObject.S)
+					}
+					return combineDateAndTime({
+						date,
+						time,
+					})
+				}
+			)
 		)
 	}
 
