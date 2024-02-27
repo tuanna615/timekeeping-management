@@ -391,6 +391,47 @@ function ExcelReader() {
 		reader.readAsBinaryString(file)
 	}
 
+	const exportToExcel = () => {
+		const employees = data
+		if (!data.length) {
+			return
+		}
+
+		const rows = []
+
+		const wb = XLSX.utils.book_new()
+		_.forEach(employees, (employee) => {
+			const infoRow = [`Mã nhân viên: ${employee.employeeId} Tên nhân viên: ${employee.name} Phòng ban: ${employee.department}`]
+			rows.push(infoRow)
+			const headerRow = ['Ngày', 'Thứ', 'Đến', 'Về', 'Nghỉ trưa', 'Quay lại', 'Đến muộn', 'Nghỉ sớm', 'Quay lại muộn', 'Về sớm', 'Tổng thời gian sớm', 'Tổng thời gian muộn', 'Ghi chú']
+			rows.push(headerRow)
+			_.forEach(employee.attendance, (attendance) => {
+				const row = [
+					attendance.date || '',
+					attendance.dayOfWeek || '',
+					attendance.arrivalTime || '',
+					attendance.breakTime || '',
+					attendance.backTime || '',
+					attendance.leaveTime || '',
+					attendance.lateArrivalMinutes || '',
+					attendance.earlyBreakMinutes || '',
+					attendance.lateBackMinutes || '',
+					attendance.earlyLeaveMinutes || '',
+					attendance.totalEarlyMinute || '',
+					attendance.totalLateMinute || '',
+					attendance.notes || '',
+				]
+				rows.push(row)
+			})
+			rows.push([])
+		})
+
+		const ws = XLSX.utils.aoa_to_sheet(rows)
+		XLSX.utils.book_append_sheet(wb, ws, 'DLCC')
+
+		XLSX.writeFile(wb, 'DLCC.xlsx')
+	}
+
 	return (
 		<div>
 			<div className="join p-2">
@@ -401,6 +442,7 @@ function ExcelReader() {
 					className="file-input"
 				/>
 			</div>
+			<button onClick={exportToExcel} className="btn"> Xuất ra Excel</button>
 			{/* Display data from state */}
 			{data.map((employee, index) => (
 				<EmployeeData key={index} data={employee} />
