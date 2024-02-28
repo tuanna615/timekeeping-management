@@ -401,12 +401,34 @@ function ExcelReader() {
 
 		const wb = XLSX.utils.book_new()
 		_.forEach(employees, (employee) => {
-			const infoRow = [`Mã nhân viên: ${employee.employeeId} Tên nhân viên: ${employee.name} Phòng ban: ${employee.department}`]
+			const infoRow = [
+				employee.employeeId || '',
+				employee.name || '',
+				`Mã nhân viên: ${employee.employeeId} Tên nhân viên: ${employee.name} Phòng ban: ${employee.department}`,
+			]
 			rows.push(infoRow)
-			const headerRow = ['Ngày', 'Thứ', 'Đến', 'Về', 'Nghỉ trưa', 'Quay lại', 'Đến muộn', 'Nghỉ sớm', 'Quay lại muộn', 'Về sớm', 'Tổng thời gian sớm', 'Tổng thời gian muộn', 'Ghi chú']
+			const headerRow = [
+				employee.employeeId || '',
+				employee.name || '',
+				'Ngày',
+				'Thứ',
+				'Đến',
+				'Về',
+				'Nghỉ trưa',
+				'Quay lại',
+				'Đến muộn',
+				'Nghỉ sớm',
+				'Quay lại muộn',
+				'Về sớm',
+				'Tổng thời gian sớm',
+				'Tổng thời gian muộn',
+				'Ghi chú',
+			]
 			rows.push(headerRow)
 			_.forEach(employee.attendance, (attendance) => {
 				const row = [
+					employee.employeeId || '',
+					employee.name || '',
 					attendance.date || '',
 					attendance.dayOfWeek || '',
 					attendance.arrivalTime || '',
@@ -442,7 +464,10 @@ function ExcelReader() {
 					className="file-input"
 				/>
 			</div>
-			<button onClick={exportToExcel} className="btn"> Xuất ra Excel</button>
+			<button onClick={exportToExcel} className="btn">
+				{' '}
+				Xuất ra Excel
+			</button>
 			{/* Display data from state */}
 			{data.map((employee, index) => (
 				<EmployeeData key={index} data={employee} />
